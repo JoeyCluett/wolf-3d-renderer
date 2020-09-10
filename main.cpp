@@ -269,6 +269,7 @@ int main(int argc, char* argv[]) {
                     #else
 
                     scanline[i] = proj;
+                    color_table[i] = iter->second;
 
                     #endif
 
