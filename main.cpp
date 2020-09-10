@@ -5,6 +5,11 @@
 #include <sys/time.h>
 #include <SDL/SDL.h>
 
+// libs to make my life easier
+#include "libs/block.h"
+#include "libs/texture.h"
+#include "libs/world.h"
+
 #define PERFORM_CRUTCH_ADJUSTMENT
 
 using namespace std;
@@ -30,7 +35,7 @@ unsigned long int get_timestamp(void) {
 struct c_point {
     float first;
     float second;
-    std::map<std::pair<int, int>, unsigned int>::iterator third;
+    world::iterator third;
 };
 
 auto calculate_crutch_adjustment(
@@ -38,7 +43,7 @@ auto calculate_crutch_adjustment(
         int xtarget, int ytarget, 
         float xnear, float ynear, 
         float xfar, float yfar,
-        std::map<std::pair<int, int>, unsigned int>& env) -> c_point {
+        world& env) -> c_point {
 
     // this should always exist, otherwise this function wouldnt be called in 
     // the first place. maybe this should just be passed as an argument
@@ -104,11 +109,15 @@ int main(int argc, char* argv[]) {
     const float crutch_dist = 20.0f; // any intersection below this goes through extra processing
     const float lateral_speed = 3.0f;
 
-    std::map<std::pair<int, int>, unsigned int> env;
+    world env;
     float* scanline = new float[800];
     float* scanline_adjust = new float[800];
-    unsigned int* color_lookup_table = new unsigned int[256];
-    unsigned int* color_table = new unsigned int[800];
+    pair<float, float>* projected_intercepts = new pair<float, float>[800]; // the exact location within the map that this line intersected
+    pair<int, int>* block_intercept = new pair<int, int>[800];
+
+    // colors work a bit differently now
+    //unsigned int* color_table = new unsigned int[800];
+    block_t** color_table = new block_t*[800];
 
     for(int i = 0; i < 800; i++) {
         double opp = map_double(i, 0, 800, -1.0f, 1.0f);
@@ -122,19 +131,24 @@ int main(int argc, char* argv[]) {
 
     SDL_Surface* surface = SDL_SetVideoMode(800, 600, 32, SDL_DOUBLEBUF | SDL_HWSURFACE | SDL_FULLSCREEN);
 
-    unsigned int black = SDL_MapRGB(surface->format, 0, 0, 0);
+    //unsigned int black = SDL_MapRGB(surface->format, 0, 0, 0);
+    block_t* black = new block_t(SDL_MapRGB(surface->format, 0, 0, 0));
+
+    texture_t* bricks = new texture_t("assets/brick-texture.pil", surface);
+    texture_t* shrubs = new texture_t("assets/shrubbery.pil", surface);
 
     // generate blocks in the environment
-    // just a solid border for now
     for(int i = 0; i < 20; i++) {
-        env[{ i,  0 }] = SDL_MapRGB(surface->format, 200, 0, 0);
-        env[{ i, 19 }] = SDL_MapRGB(surface->format, 200, 0, 0);
-        env[{ 0,  i }] = SDL_MapRGB(surface->format, 0, 0, 200);
-        env[{ 19, i }] = SDL_MapRGB(surface->format, 0, 0, 200);
-    }
+        env[{ i,  0 }] = block_t( SDL_MapRGB(surface->format, 200, 0, 0) );
+        //env[{ i, 19 }] = block_t( SDL_MapRGB(surface->format, 200, 0, 0) );
+        env[{ 0,  i }] = block_t( SDL_MapRGB(surface->format, 0, 0, 200) );
+        //env[{ 19, i }] = block_t( SDL_MapRGB(surface->format, 0, 0, 200) );
 
-    for(int c = 0; c < 256; c++)
-        color_lookup_table[c] = SDL_MapRGB(surface->format, c, c, c);
+        //env[{ i,  0 }] = block_t( bricks );
+        env[{ i, 19 }] = block_t( bricks );
+        //env[{ 0,  i }] = block_t( shrubs );
+        env[{ 19, i }] = block_t( shrubs );
+    }
 
     struct {
         bool up    = false;
@@ -185,9 +199,9 @@ int main(int argc, char* argv[]) {
             else if(e.type == SDL_MOUSEMOTION) {
                 if(attention_mouse_motion) {
                     direction += (float(e.motion.xrel) / 200.0f);
-                    SDL_WarpMouse(400, 300);
+                    //SDL_WarpMouse(400, 300);
                 }
-                attention_mouse_motion = 1 - attention_mouse_motion;
+                //attention_mouse_motion = 1 - attention_mouse_motion;
             }
         }
 
@@ -209,16 +223,16 @@ int main(int argc, char* argv[]) {
             player_y += delta_loop_time * lateral_speed * sinf(direction + M_PI_2);
         }
 
-        //float lhs = direction - (fov_2);
-        //float rhs = direction + (fov_2);
-
         float max_distance = -1.0f;
         float min_distance = 1000000.0f;
 
         // find projections for every vertical scan line
         for(int i = 0; i < 800; i++) {
+
+            // prep the results area
+            color_table[i] = NULL;
+
             // angle calculation works a lil differently
-            //float delta = map_float(i, 0.0f, 800.0f, lhs, rhs);
             float delta;
 
             {
@@ -259,18 +273,31 @@ int main(int argc, char* argv[]) {
 
                         // calculate adjusted projection distance
                         scanline[i] = sqrtf(delta_x*delta_x + delta_y*delta_y);
-                        color_table[i] = crutch_point.third->second;
+                        color_table[i] = &crutch_point.third->second;
+                        projected_intercepts[i] = 
+                            { 
+                                crutch_point.first, 
+                                crutch_point.second 
+                            };
+                        block_intercept[i] = crutch_point.third->first;
+                            //{
+                            //    crutch_point.third->first,
+                            //    crutch_dist
+                            //};
                     }
                     else {
                         scanline[i] = proj; //  - scanline_adjust[i];
-                        color_table[i] = iter->second;
+                        color_table[i] = &iter->second;
+                        projected_intercepts[i] = { tmp_x, tmp_y };
+                        block_intercept[i] = { int_x, int_y };
                     }
 
                     #else
 
                     scanline[i] = proj;
                     color_table[i] = iter->second;
-
+                    projected_intercepts[i] = { tmp_x, tmp_y };
+                    
                     #endif
 
                     break;
@@ -299,19 +326,66 @@ int main(int argc, char* argv[]) {
             SDL_FillRect(surface, &r, SDL_MapRGB(surface->format, 100, 100, 100));
         }
 
-        //SDL_FillRect(surface, NULL, 0);
-
         for(int i = 0; i < 800; i++) {
-            if(scanline[i] > scanline_adjust[i]) {
+            if(scanline[i] > scanline_adjust[i] && color_table[i]) {
+
                 SDL_Rect r;
                 r.x = i;
                 r.h = 600.0f / (scanline[i] * scanline_adjust[i]);
                 r.y = 300 - (r.h / 2);
                 r.w = 1;
 
-                //int color_index = map_float(scanline[i], min_distance, max_distance, 0.0f, 255.0f);
-                //SDL_FillRect(surface, &r, color_lookup_table[255 - color_index]);
-                SDL_FillRect(surface, &r, color_table[i]);
+                // our rendering technique changes depending on whether we have a texture here or a solid color
+                switch(color_table[i]->type) {
+                    case block_t::b_texture:
+                        {
+                            texture_t* texptr = color_table[i]->tex;
+
+                            // find which side we are on
+                            float ind_x = projected_intercepts[i].first  - block_intercept[i].first;
+                            float ind_y = projected_intercepts[i].second - block_intercept[i].second;
+
+                            float slope = ind_y / ind_x;
+                            int row_index;
+
+                            if(slope > -1.0f && slope < 1.0f) {
+                                // side
+                                row_index = map_float(ind_y, -0.5f, 0.5f, 0, texptr->h);
+                            }
+                            else {
+                                // top/bottom
+                                row_index = map_float(ind_x, -0.5f, 0.5f, 0, texptr->h);
+                            }
+
+                            
+
+                            unsigned int* row = color_table[i]->tex->row(row_index);
+
+                            for(int j = 0; j < r.h; j++) {
+                                int col_index = map_float(j, 0, r.h, 0, texptr->w);
+
+                                SDL_Rect r1;
+                                r1.w = 1;
+                                r1.h = 1;
+                                r1.x = i;
+                                r1.y = r.y + j;
+                                SDL_FillRect(surface, &r1, row[col_index]);
+                            }
+
+                        }
+                        break;
+                    case block_t::b_color:
+                        {
+                            
+
+                            //int color_index = map_float(scanline[i], min_distance, max_distance, 0.0f, 255.0f);
+                            //SDL_FillRect(surface, &r, color_lookup_table[255 - color_index]);
+                            SDL_FillRect(surface, &r, color_table[i]->color);
+                        }
+                        break;
+                }
+
+                
             }
         }
 
