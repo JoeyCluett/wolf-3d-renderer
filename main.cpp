@@ -128,7 +128,7 @@ int main(int argc, char* argv[]) {
     //float player_y  = 6.8788f;
     //float direction = 46.32f;
 
-    SDL_Surface* surface = SDL_SetVideoMode(800, 600, 32, SDL_DOUBLEBUF | SDL_HWSURFACE );
+    SDL_Surface* surface = SDL_SetVideoMode(800, 600, 32, SDL_DOUBLEBUF | SDL_HWSURFACE | SDL_FULLSCREEN);
 
     //unsigned int black = SDL_MapRGB(surface->format, 0, 0, 0);
     block_t* black = new block_t(SDL_MapRGB(surface->format, 0, 0, 0));
@@ -261,10 +261,10 @@ int main(int argc, char* argv[]) {
                                     
                     if(proj < crutch_dist) {
                         auto crutch_point = calculate_crutch_adjustment(
-                                10, // do three iterations
-                                int_x, int_y,
+                                10, // iterations
+                                int_x,  int_y,
                                 prev_x, prev_y,
-                                tmp_x, tmp_y,
+                                tmp_x,  tmp_y,
                                 env);
 
                         float delta_x = player_x - crutch_point.first;
@@ -321,10 +321,10 @@ int main(int argc, char* argv[]) {
 
                 SDL_Rect r;
                 r.x = i;
-                //r.h = 600.0f / (scanline[i] * scanline_adjust[i]);
-                r.h = 1000.0f / (scanline[i] * scanline_adjust[i]);
+                r.h = 600.0f / (scanline[i] * scanline_adjust[i]);
+                //r.h = 1000.0f / (scanline[i] * scanline_adjust[i]);
                 r.y = 300 - (r.h / 2);
-                r.w = 2;
+                r.w = 1;
 
                 // our rendering technique changes depending on whether we have a texture here or a solid color
                 switch(color_table[i]->type) {
@@ -354,7 +354,7 @@ int main(int argc, char* argv[]) {
                                 int col_index = map_float(j, 0, r.h, 0, texptr->w);
 
                                 SDL_Rect r1;
-                                r1.w = 2;
+                                r1.w = 1;
                                 r1.h = 1;
                                 r1.x = i;
                                 r1.y = r.y + j;
