@@ -5,9 +5,22 @@
 #include <sys/time.h>
 #include <SDL/SDL.h>
 
-#define PERFORM_CRUTCH_ADJUSTMENT
+// libs to make my life easier
+#include "libs/block.h"
+#include "libs/texture.h"
+#include "libs/world.h"
+
+#define DEBUG_SHOW_BOUNDS
+#define DEBUG_SHOW_CENTERLINE
+
+//#define FISHEYE_EFFECT
 
 using namespace std;
+
+struct point_t {
+    float x;
+    float y;
+};
 
 float map_float(float input, float input_start, float input_end, float output_start, float output_end) {
     return output_start + ((output_end - output_start) / (input_end - input_start)) * (input - input_start);
@@ -17,20 +30,72 @@ double map_double(double input, double input_start, double input_end, double out
     return output_start + ((output_end - output_start) / (input_end - input_start)) * (input - input_start);
 }
 
+int clamp_int(int input, int min, int max) {
+    return (input > min) ? ( input < max ? input : max) : min;
+}
+
 unsigned long int get_timestamp(void) {
     timeval tv;
     gettimeofday(&tv, NULL);
     return (tv.tv_sec * 1000000L) + tv.tv_usec;
 }
 
-#ifdef PERFORM_CRUTCH_ADJUSTMENT
+bool test_segment_block_collide(int map_x, int map_y, float near_x, float near_y, float far_x, float far_y, point_t& pt) {
+
+    // shamelessly taken from the Wikipedia for geometric intersections
+    float& x1 = near_x;
+    float& y1 = near_y;
+    float& x2 = far_x;
+    float& y2 = far_y;
+
+    // top line
+    float x3 = float(map_x) - 0.5f;
+    float y3 = float(map_y) - 0.5f;
+    float x4 = float(map_x) + 0.5f;
+    float y4 = float(map_y) + 0.5f;
+
+    // i dont have a clue why the following works...
+
+    float Px = (x1*y2 - y1*x2)*(x3 - x4) - (x1 - x2)*(x3*y4 - y3*x4);
+    Px /= ( (x1 - x2)*(y3 - y4) - (y1 - y2)*(x3 - x4) );
+
+    float Py = (x1*y2 - y1*x2)*(y3 - y4) - (y1 - y2)*(x3*y4 - y3*x4);
+    Py /= ( (x1 - x2)*(y3 - y4) - (y1 - y2)*(x3 - x4) );
+
+    pt.x = Px;
+    pt.y = Py;
+
+    // point of intersection must sit within a certain range
+    bool collides = (Px > x3) && (Px < x4) && (Py > y3) && (Py < y4);
+
+    // stop here if we have a collision
+    if(collides) return true;
+
+    x3 = float(map_x) - 0.5f;
+    y3 = float(map_y) + 0.5f;
+    x4 = float(map_x) + 0.5f;
+    y4 = float(map_y) - 0.5f;
+
+    // test other segment
+    Px = (x1*y2 - y1*x2)*(x3 - x4) - (x1 - x2)*(x3*y4 - y3*x4);
+    Px /= ( (x1 - x2)*(y3 - y4) - (y1 - y2)*(x3 - x4) );
+
+    Py = (x1*y2 - y1*x2)*(y3 - y4) - (y1 - y2)*(x3*y4 - y3*x4);
+    Py /= ( (x1 - x2)*(y3 - y4) - (y1 - y2)*(x3 - x4) );
+
+    pt.x = Px;
+    pt.y = Py;
+
+    collides = (Px > x3) && (Px < x4) && (Py > y4) && (Py < y3);
+    return collides;
+}
 
 // calculate_crutch_adj returns one of these structure which contains 
 // adjusted projection data and an iterator to corrected color data
 struct c_point {
     float first;
     float second;
-    std::map<std::pair<int, int>, unsigned int>::iterator third;
+    world::iterator third;
 };
 
 auto calculate_crutch_adjustment(
@@ -38,7 +103,7 @@ auto calculate_crutch_adjustment(
         int xtarget, int ytarget, 
         float xnear, float ynear, 
         float xfar, float yfar,
-        std::map<std::pair<int, int>, unsigned int>& env) -> c_point {
+        world& env) -> c_point {
 
     // this should always exist, otherwise this function wouldnt be called in 
     // the first place. maybe this should just be passed as an argument
@@ -59,17 +124,15 @@ auto calculate_crutch_adjustment(
                 // there exists a block that is closer
                 // recursively call function with updated target information
                 return calculate_crutch_adjustment(
-                        iters, // may pass one less than the original because this is 
-                               // the result of doing one iteration...
+                        iters - 1, // pass one less than the original because this is 
+                                   // the result of doing one iteration...
                         xmid_int, ymid_int,
                         xnear, ynear,
                         xfar, yfar, 
                         env);
             }
         }
-        // otherwise, continue with the algorithm as usual
-        // ...
-
+        
         if(roundf(xmid) == xtarget && roundf(ymid) == ytarget) {
             // midpoint collides with current block
             xfar = xmid;
@@ -91,50 +154,70 @@ auto calculate_crutch_adjustment(
 
 }
 
-#endif
 
 int main(int argc, char* argv[]) {
     SDL_Init(SDL_INIT_EVERYTHING);
 
-    const int scaniters     = 35;
+    const int scaniters     = 31;
     const float scandist    = 30.0f;
     const float fov         = M_PI_2;
-    const float fov_2       = fov / 2.0f;
-    const float screen_dist = 1.0f;
-    const float crutch_dist = 20.0f; // any intersection below this goes through extra processing
     const float lateral_speed = 3.0f;
 
-    std::map<std::pair<int, int>, unsigned int> env;
+    world env;
+
     float* scanline = new float[800];
-    float* scanline_adjust = new float[800];
-    unsigned int* color_lookup_table = new unsigned int[256];
-    unsigned int* color_table = new unsigned int[800];
+    float* const_scanline_adjust = new float[800];
+    //pair<float, float>* projected_intercepts = new pair<float, float>[800]; // the exact location within the map that this line intersected
+    //pair<int, int>* block_intercept = new pair<int, int>[800];
 
     for(int i = 0; i < 800; i++) {
-        double opp = map_double(i, 0, 800, -1.0f, 1.0f);
-        double theta = atan(opp / 1.0f);
-        scanline_adjust[i] = cos(theta);
+        double opp = map_double(i, 0, 800, -0.1f, 0.1f);
+        double theta = atan(opp / 0.1f);
+        const_scanline_adjust[i] = cos(theta);
     }
 
+    float player_x  = 4.5;
+    float player_y  = 4.5;
     float direction = 0.0f;
-    float player_x = 4.5;
-    float player_y = 4.5;
 
     SDL_Surface* surface = SDL_SetVideoMode(800, 600, 32, SDL_DOUBLEBUF | SDL_HWSURFACE | SDL_FULLSCREEN);
 
-    unsigned int black = SDL_MapRGB(surface->format, 0, 0, 0);
+    unsigned int pink = SDL_MapRGB(surface->format, 255, 105, 180);
+    unsigned int red  = SDL_MapRGB(surface->format, 255, 0, 0);
+    block_t* black = new block_t(SDL_MapRGB(surface->format, 0, 0, 0));
+
+    texture_t* bricks    = new texture_t("assets/brick-texture.bin", surface);
+    texture_t* oiledup   = new texture_t("assets/oil-up.bin",        surface);
+    texture_t* shaggy    = new texture_t("assets/shaggy.bin",        surface);
+    texture_t* pixeled   = new texture_t("assets/pixelated.bin",     surface);
+    texture_t* shrubs    = new texture_t("assets/shrubbery.bin",     surface);
+    texture_t* painted   = new texture_t("assets/hand-painted.bin",  surface);
+    texture_t* paper     = new texture_t("assets/paper.bin",         surface);
+    texture_t* spaceship = new texture_t("assets/spaceship.bin",     surface);
+    texture_t* backrooms = new texture_t("assets/backrooms.bin",     surface);
+    texture_t* ytho      = new texture_t("assets/ytho.bin",          surface);
+    texture_t* wat       = new texture_t("assets/wat.bin",           surface);
 
     // generate blocks in the environment
-    // just a solid border for now
     for(int i = 0; i < 20; i++) {
-        env[{ i,  0 }] = SDL_MapRGB(surface->format, 200, 0, 0);
-        env[{ i, 19 }] = SDL_MapRGB(surface->format, 200, 0, 0);
-        env[{ 0,  i }] = SDL_MapRGB(surface->format, 0, 0, 200);
-        env[{ 19, i }] = SDL_MapRGB(surface->format, 0, 0, 200);
+        env[{ i,  0 }] = block_t( paper );
+        env[{ i, 19 }] = block_t( bricks );
+        env[{ 0,  i }] = block_t( painted );
+        env[{ 19, i }] = block_t( shrubs );
     }
 
-    for(int c = 0; c < 256; c++)
-        color_lookup_table[c] = SDL_MapRGB(surface->format, c, c, c);
+    env[{ 9,   9 }] = block_t( spaceship );
+    env[{ 9,  10 }] = block_t( spaceship );
+    env[{ 10,  9 }] = block_t( spaceship );
+    env[{ 10, 10 }] = block_t( spaceship );
+
+    env[{ 15, 15 }] = block_t( pixeled );
+    env[{ 14, 14 }] = block_t( pixeled );
+    env[{ 13, 15 }] = block_t( pixeled );
+    env[{ 14, 15 }] = block_t( shaggy );
+
+    env[{ 4, 14 }] = block_t( ytho );
+    env[{ 15, 4 }] = block_t( wat );
 
     struct {
         bool up    = false;
@@ -147,8 +230,6 @@ int main(int argc, char* argv[]) {
     SDL_ShowCursor(SDL_DISABLE);
 
     double start_loop_time = double(get_timestamp() / 1000);
-
-    int attention_mouse_motion = 1;
 
     bool quit = false;
     while(!quit) {
@@ -183,11 +264,11 @@ int main(int argc, char* argv[]) {
                 }
             }
             else if(e.type == SDL_MOUSEMOTION) {
-                if(attention_mouse_motion) {
-                    direction += (float(e.motion.xrel) / 200.0f);
-                    SDL_WarpMouse(400, 300);
-                }
-                attention_mouse_motion = 1 - attention_mouse_motion;
+                direction += (float(e.motion.xrel) / 200.0f);
+
+                // ensure theta always stays in [ 0.0, 2*pi ]
+                if(direction > (2.0 * M_PI)) direction -= (2.0 * M_PI);
+                else if(direction < 0.0) direction += (2.0 * M_PI);
             }
         }
 
@@ -209,17 +290,28 @@ int main(int argc, char* argv[]) {
             player_y += delta_loop_time * lateral_speed * sinf(direction + M_PI_2);
         }
 
-        //float lhs = direction - (fov_2);
-        //float rhs = direction + (fov_2);
+        //SDL_FillRect(surface, NULL, 0);
 
-        float max_distance = -1.0f;
-        float min_distance = 1000000.0f;
+        {
+
+            SDL_Rect ceiling_tile;
+            ceiling_tile.x = 0;
+            ceiling_tile.y = 0;
+            ceiling_tile.w = 800;
+            ceiling_tile.h = 300;
+            SDL_FillRect(surface, &ceiling_tile, SDL_MapRGB(surface->format, 222 / 2, 184 / 2, 135 / 2));
+            ceiling_tile.y = 300;
+            SDL_FillRect(surface, &ceiling_tile, SDL_MapRGB(surface->format, 255 / 2, 222 / 2, 173 / 2));
+
+        }
 
         // find projections for every vertical scan line
         for(int i = 0; i < 800; i++) {
-            // angle calculation works a lil differently
-            //float delta = map_float(i, 0.0f, 800.0f, lhs, rhs);
+
+            // actual angle to project out at
             float delta;
+
+            #ifndef FISHEYE_EFFECT
 
             {
                 double opp = map_double(i, 0, 800, -1.0f, 1.0f);
@@ -227,93 +319,223 @@ int main(int argc, char* argv[]) {
                 delta = theta + direction;
             }
 
+            #else
+
+            {
+                delta = direction + map_double(i, 0, 800, -M_PI_2 / 2.0, M_PI_2 / 2.0);
+            }
+
+            #endif
+
             float prev_x = player_x;
             float prev_y = player_y;
 
-            for(int k = 0; k < scaniters; k++) {
+            c_point cpt;
 
-                // projected distance
-                const float proj = map_float(k, 0.0f, scaniters, 0.0f, scandist);
+            bool found_intercept = false;
 
-                float tmp_x = player_x + proj*cosf(delta);
-                float tmp_y = player_y + proj*sinf(delta);
+            for(int k = 1; k < scaniters && !found_intercept; k++) {
 
-                int int_x = roundf(tmp_x);
-                int int_y = roundf(tmp_y);
+                const float near_projection = map_float(k-1, 0, scaniters, 0.0f, scandist);
+                const float far_projection  = map_float(k,   0, scaniters, 0.0f, scandist);
 
-                auto iter = env.find({ int_x, int_y });
-                if(iter != env.end()) {
+                // trigonometry!!
+                const float x_near = player_x + near_projection*cosf(delta);
+                const float y_near = player_y + near_projection*sinf(delta);
+                const float x_far  = player_x + far_projection*cosf(delta);
+                const float y_far  = player_y + far_projection*sinf(delta);
+
+                float x_intercept;
+                float y_intercept;
                 
-                    #ifdef PERFORM_CRUTCH_ADJUSTMENT
+                world::iterator world_iter;
+
+                point_t pt;
+
+                // gonna break a cardinal rule of programming and use ... *shudders*... a goto
+
+                {
+                    x_intercept = x_near;
+                    y_intercept = y_near;
                     
-                    if(proj < crutch_dist) {
-                        auto crutch_point = calculate_crutch_adjustment(
-                                10, // do three iterations
-                                int_x, int_y,
-                                prev_x, prev_y,
-                                tmp_x, tmp_y,
-                                env);
+                    world_iter = env.find({ roundf(x_intercept), roundf(y_intercept) });
+                    if(world_iter != env.end()) {
+                        if(test_segment_block_collide(
+                                world_iter->first.first, 
+                                world_iter->first.second, 
+                                x_near, y_near, 
+                                x_far, y_far, 
+                                pt)) {
+                            
+                            goto found_world_block; // #1
 
-                        float delta_x = player_x - crutch_point.first;
-                        float delta_y = player_y - crutch_point.second;
-
-                        // calculate adjusted projection distance
-                        scanline[i] = sqrtf(delta_x*delta_x + delta_y*delta_y);
-                        color_table[i] = crutch_point.third->second;
+                        }
                     }
-                    else {
-                        scanline[i] = proj; //  - scanline_adjust[i];
-                        color_table[i] = iter->second;
-                    }
-
-                    #else
-
-                    scanline[i] = proj;
-                    color_table[i] = iter->second;
-
-                    #endif
-
-                    break;
                 }
 
-                prev_x = tmp_x;
-                prev_y = tmp_y;
+                {
 
-                // failed to find wall intersection
-                color_table[i] = black;
-                scanline[i] = -1;
+                    x_intercept = x_far;
+                    y_intercept = y_near;
+
+                    world_iter = env.find({ roundf(x_intercept), roundf(y_intercept) });
+                    if(world_iter != env.end()) {
+                        if(test_segment_block_collide(
+                                world_iter->first.first, 
+                                world_iter->first.second, 
+                                x_near, y_near, 
+                                x_far, y_far, 
+                                pt)) {
+                            
+                            goto found_world_block; // #2
+                        }
+                    }
+                }
+
+                {
+
+                    x_intercept = x_near;
+                    y_intercept = y_far;
+
+                    world_iter = env.find({ roundf(x_intercept), roundf(y_intercept) });
+                    if(world_iter != env.end()) {
+                        if(test_segment_block_collide(
+                                world_iter->first.first, 
+                                world_iter->first.second, 
+                                x_near, y_near, 
+                                x_far, y_far, 
+                                pt)) {
+                            
+                            goto found_world_block; // #3
+                        }
+                    }
+                }
+
+                // didnt find an intercept. skip to the next iteration
+                // the goto's above skip this one line
+                continue;
+
+            // label for forbidden goto
+            found_world_block:
+
+                // if we make it to this point, it means we found an intercept
+                // world_iter contains world intercept information
+
+                found_intercept = true;
+
+                // the exact point of intersection is in pt. pass it to calculate_crutch_adjustment to 
+                // find the point of intersection closest to the player
+                cpt = calculate_crutch_adjustment(
+                        10, 
+                        world_iter->first.first, 
+                        world_iter->first.second, 
+                        player_x, player_y, 
+                        pt.x, pt.y, 
+                        env);
+
             }
-        }
 
-        // apply ceiling and floor colors
-        {
-            SDL_Rect r;
-            r.x = 0;
-            r.y = 0;
-            r.w = 800;
+            // only render scanline if we found something to render
+            if(found_intercept) {
 
-            r.h = 600;
-            SDL_FillRect(surface, &r, SDL_MapRGB(surface->format, 200, 200, 200));
+                // calculate actual distance to new intercept
+                float delta_x = player_x - cpt.first;
+                float delta_y = player_y - cpt.second;
 
-            r.h = 300;
-            SDL_FillRect(surface, &r, SDL_MapRGB(surface->format, 100, 100, 100));
-        }
+                float actual_distance = sqrtf(delta_x*delta_x + delta_y*delta_y);
 
-        //SDL_FillRect(surface, NULL, 0);
+                if(actual_distance < const_scanline_adjust[i] / 10.0f) {
+                    continue; // skip the rest of the rendering algorithm
+                }
 
-        for(int i = 0; i < 800; i++) {
-            if(scanline[i] > scanline_adjust[i]) {
                 SDL_Rect r;
                 r.x = i;
-                r.h = 600.0f / (scanline[i] * scanline_adjust[i]);
+                r.h = 600.0f / (actual_distance * const_scanline_adjust[i]);
                 r.y = 300 - (r.h / 2);
                 r.w = 1;
 
-                //int color_index = map_float(scanline[i], min_distance, max_distance, 0.0f, 255.0f);
-                //SDL_FillRect(surface, &r, color_lookup_table[255 - color_index]);
-                SDL_FillRect(surface, &r, color_table[i]);
+                // our rendering technique changes depending on whether we have a texture here or a solid color
+                switch(cpt.third->second.type) {
+                    case block_t::b_texture:
+                        {
+                            //texture_t* texptr = color_table[i]->tex;
+                            texture_t* texptr = cpt.third->second.tex;
+
+                            // find which side we are on
+                            float ind_x = cpt.first  - cpt.third->first.first;
+                            float ind_y = cpt.second - cpt.third->first.second;
+
+                            float slope = ind_y / ind_x;
+                            int row_index;
+
+                            if(slope > -1.0f && slope < 1.0f) {
+                                // side
+                                row_index = map_float(ind_y, -0.5f, 0.5f, 0, texptr->h);
+                            }
+                            else {
+                                // top/bottom
+                                row_index = map_float(ind_x, -0.5f, 0.5f, 0, texptr->h);
+                            }
+
+                            //std::cout << " row[" << row_index << "/" << texptr->h << "]" << std::flush;
+                            row_index = clamp_int(row_index, 0, texptr->h-1);
+
+                            unsigned int* row = texptr->row(row_index);
+
+                            for(int j = 0; j < r.h; j++) {
+                                int col_index = map_float(j, 0, r.h, 0, texptr->w);
+
+                                //std::cout << " col[" << col_index << "/" << texptr->w << "] " << std::flush;
+                                col_index = clamp_int(col_index, 0, texptr->w - 1);
+
+                                SDL_Rect r1;
+                                r1.w = 1;
+                                r1.h = 1;
+                                r1.x = i;
+                                r1.y = r.y + j;
+                                SDL_FillRect(surface, &r1, row[col_index]);
+                                //env.pixel(r.x, r.y) = row[col_index];
+                            }
+
+                        }
+                        break;
+                    case block_t::b_color:
+                        {
+                            SDL_FillRect(surface, &r, cpt.third->second.color);
+                        }
+                        break;
+                }
+
+
+            #ifdef DEBUG_SHOW_BOUNDS
+                SDL_Rect trim;
+                trim.x = r.x;
+                trim.y = r.y - 1;
+                trim.h = 3;
+                trim.w = 1;
+
+                SDL_FillRect(surface, &trim, pink);
+
+                trim.y = r.y - 1 + r.h;
+
+                SDL_FillRect(surface, &trim, pink);
+            #endif
+
+            #ifdef DEBUG_SHOW_CENTERLINE
+
+                trim.x = 0;
+                trim.y = 300 - 1;
+                trim.h = 2;
+                trim.w = 800;
+
+                SDL_FillRect(surface, &trim, red);
+            #endif
+
             }
+
         }
+
+        
 
         SDL_Flip(surface);
 
