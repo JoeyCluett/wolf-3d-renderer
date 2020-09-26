@@ -3,6 +3,7 @@
 #include <iostream>
 #include <SDL/SDL.h>
 #include "texture.h"
+#include "transparent_texture.h"
 
 struct block_t {
 
@@ -11,10 +12,12 @@ struct block_t {
     static const int b_none    = 0;
     static const int b_texture = 1;
     static const int b_color   = 2;
+    static const int b_opq_tex = 4; // texture with transparency
     
     union {
         texture_t* tex;
         unsigned int color;
+        transparent_texture_t* transp_tex;
     };
 
     // useless default ctor
@@ -30,6 +33,11 @@ struct block_t {
     block_t(texture_t* tex) {
         this->type = block_t::b_texture;
         this->tex = tex;
+    }
+
+    block_t(transparent_texture_t* ttex) {
+        this->type = block_t::b_opq_tex;
+        this->transp_tex = ttex;
     }
 
     block_t(unsigned int color) {

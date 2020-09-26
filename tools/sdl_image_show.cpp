@@ -11,7 +11,7 @@ int main(int argc, char* argv[]) {
 
     SDL_Surface* surface = SDL_SetVideoMode(800, 600, 32, SDL_HWSURFACE | SDL_DOUBLEBUF);
 
-    texture_t* tex = new texture_t("../assets/brick-texture.pil", surface);
+    texture_t* tex = new texture_t("../assets/textures.pil", surface);
 
     int max_x = tex->w;
     int max_y = tex->h;
