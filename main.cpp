@@ -9,10 +9,20 @@
 #include "libs/block.h"
 #include "libs/texture.h"
 #include "libs/world.h"
+<<<<<<< HEAD
+#include "libs/linear_map.h"
+#include "libs/atlas.h"
+#include "libs/transparent_texture.h"
+
+//#define DEBUG_SHOW_BOUNDS
+//#define DEBUG_SHOW_CENTERLINE
+//#define DEBUG_PRINT_FRAME_TIME
+=======
 
 #define DEBUG_SHOW_BOUNDS
 #define DEBUG_SHOW_CENTERLINE
 
+>>>>>>> master
 //#define FISHEYE_EFFECT
 
 using namespace std;
@@ -21,6 +31,8 @@ struct point_t {
     float x;
     float y;
 };
+<<<<<<< HEAD
+=======
 
 float map_float(float input, float input_start, float input_end, float output_start, float output_end) {
     return output_start + ((output_end - output_start) / (input_end - input_start)) * (input - input_start);
@@ -29,6 +41,7 @@ float map_float(float input, float input_start, float input_end, float output_st
 double map_double(double input, double input_start, double input_end, double output_start, double output_end) {
     return output_start + ((output_end - output_start) / (input_end - input_start)) * (input - input_start);
 }
+>>>>>>> master
 
 int clamp_int(int input, int min, int max) {
     return (input > min) ? ( input < max ? input : max) : min;
@@ -61,6 +74,37 @@ bool test_segment_block_collide(int map_x, int map_y, float near_x, float near_y
 
     float Py = (x1*y2 - y1*x2)*(y3 - y4) - (y1 - y2)*(x3*y4 - y3*x4);
     Py /= ( (x1 - x2)*(y3 - y4) - (y1 - y2)*(x3 - x4) );
+<<<<<<< HEAD
+=======
+
+    pt.x = Px;
+    pt.y = Py;
+
+    // point of intersection must sit within a certain range
+    bool collides = (Px > x3) && (Px < x4) && (Py > y3) && (Py < y4);
+
+    // stop here if we have a collision
+    if(collides) return true;
+
+    x3 = float(map_x) - 0.5f;
+    y3 = float(map_y) + 0.5f;
+    x4 = float(map_x) + 0.5f;
+    y4 = float(map_y) - 0.5f;
+
+    // test other segment
+    Px = (x1*y2 - y1*x2)*(x3 - x4) - (x1 - x2)*(x3*y4 - y3*x4);
+    Px /= ( (x1 - x2)*(y3 - y4) - (y1 - y2)*(x3 - x4) );
+
+    Py = (x1*y2 - y1*x2)*(y3 - y4) - (y1 - y2)*(x3*y4 - y3*x4);
+    Py /= ( (x1 - x2)*(y3 - y4) - (y1 - y2)*(x3 - x4) );
+
+    pt.x = Px;
+    pt.y = Py;
+
+    collides = (Px > x3) && (Px < x4) && (Py > y4) && (Py < y3);
+    return collides;
+}
+>>>>>>> master
 
     pt.x = Px;
     pt.y = Py;
@@ -90,7 +134,7 @@ bool test_segment_block_collide(int map_x, int map_y, float near_x, float near_y
     return collides;
 }
 
-// calculate_crutch_adj returns one of these structure which contains 
+// calculate_crutch_adj returns one of these structures which contains 
 // adjusted projection data and an iterator to corrected color data
 struct c_point {
     float first;
@@ -186,6 +230,13 @@ int main(int argc, char* argv[]) {
     unsigned int red  = SDL_MapRGB(surface->format, 255, 0, 0);
     block_t* black = new block_t(SDL_MapRGB(surface->format, 0, 0, 0));
 
+<<<<<<< HEAD
+    // 11 different textures in this one file
+    texture_atlas_t tat("assets/textures.pil", 1, 11, surface);
+
+    /*
+=======
+>>>>>>> master
     texture_t* bricks    = new texture_t("assets/brick-texture.bin", surface);
     texture_t* oiledup   = new texture_t("assets/oil-up.bin",        surface);
     texture_t* shaggy    = new texture_t("assets/shaggy.bin",        surface);
@@ -197,6 +248,39 @@ int main(int argc, char* argv[]) {
     texture_t* backrooms = new texture_t("assets/backrooms.bin",     surface);
     texture_t* ytho      = new texture_t("assets/ytho.bin",          surface);
     texture_t* wat       = new texture_t("assets/wat.bin",           surface);
+<<<<<<< HEAD
+    */
+
+    texture_t* bricks    = tat.get(0, 0);
+    texture_t* shaggy    = tat.get(0, 1);
+    texture_t* pixeled   = tat.get(0, 2);
+    texture_t* shrubs    = tat.get(0, 3);
+    texture_t* painted   = tat.get(0, 4);
+    texture_t* paper     = tat.get(0, 5);
+    texture_t* spaceship = tat.get(0, 6);
+    texture_t* ytho      = tat.get(0, 7);
+    texture_t* wat       = tat.get(0, 8);
+
+    transparent_texture_t barrel{ tat.get(0, 8) };
+    transparent_texture_t pillar{ tat.get(0, 9) };
+    transparent_texture_t lamp{   tat.get(0, 10) };
+
+    // generate blocks in the environment
+/*
+    for(int i = 0; i < 20; i++) {
+        env[{ i,  0 }] = block_t( paper );
+        env[{ i, 19 }] = block_t( bricks );
+        env[{ 0,  i }] = block_t( painted );
+        env[{ 19, i }] = block_t( shrubs );
+    }
+*/
+
+    for(int i = 0; i < 20; i++) {
+        env[{ i,  0 }] = block_t( &barrel );
+        env[{ i, 19 }] = block_t( &barrel );
+        env[{ 0,  i }] = block_t( &pillar );
+        env[{ 19, i }] = block_t( &pillar );
+=======
 
     // generate blocks in the environment
     for(int i = 0; i < 20; i++) {
@@ -204,6 +288,7 @@ int main(int argc, char* argv[]) {
         env[{ i, 19 }] = block_t( bricks );
         env[{ 0,  i }] = block_t( painted );
         env[{ 19, i }] = block_t( shrubs );
+>>>>>>> master
     }
 
     env[{ 9,   9 }] = block_t( spaceship );
@@ -217,7 +302,11 @@ int main(int argc, char* argv[]) {
     env[{ 14, 15 }] = block_t( shaggy );
 
     env[{ 4, 14 }] = block_t( ytho );
+<<<<<<< HEAD
+    env[{ 15, 4 }] = block_t( &barrel );
+=======
     env[{ 15, 4 }] = block_t( wat );
+>>>>>>> master
 
     struct {
         bool up    = false;
@@ -290,8 +379,11 @@ int main(int argc, char* argv[]) {
             player_y += delta_loop_time * lateral_speed * sinf(direction + M_PI_2);
         }
 
+<<<<<<< HEAD
+=======
         //SDL_FillRect(surface, NULL, 0);
 
+>>>>>>> master
         {
 
             SDL_Rect ceiling_tile;
@@ -331,6 +423,7 @@ int main(int argc, char* argv[]) {
             float prev_y = player_y;
 
             c_point cpt;
+<<<<<<< HEAD
 
             bool found_intercept = false;
 
@@ -345,6 +438,22 @@ int main(int argc, char* argv[]) {
                 const float x_far  = player_x + far_projection*cosf(delta);
                 const float y_far  = player_y + far_projection*sinf(delta);
 
+=======
+
+            bool found_intercept = false;
+
+            for(int k = 1; k < scaniters && !found_intercept; k++) {
+
+                const float near_projection = map_float(k-1, 0, scaniters, 0.0f, scandist);
+                const float far_projection  = map_float(k,   0, scaniters, 0.0f, scandist);
+
+                // trigonometry!!
+                const float x_near = player_x + near_projection*cosf(delta);
+                const float y_near = player_y + near_projection*sinf(delta);
+                const float x_far  = player_x + far_projection*cosf(delta);
+                const float y_far  = player_y + far_projection*sinf(delta);
+
+>>>>>>> master
                 float x_intercept;
                 float y_intercept;
                 
@@ -458,7 +567,10 @@ int main(int argc, char* argv[]) {
                 switch(cpt.third->second.type) {
                     case block_t::b_texture:
                         {
+<<<<<<< HEAD
+=======
                             //texture_t* texptr = color_table[i]->tex;
+>>>>>>> master
                             texture_t* texptr = cpt.third->second.tex;
 
                             // find which side we are on
@@ -504,9 +616,55 @@ int main(int argc, char* argv[]) {
                             SDL_FillRect(surface, &r, cpt.third->second.color);
                         }
                         break;
+<<<<<<< HEAD
+                    case block_t::b_opq_tex:
+                        {
+                            texture_t* texptr = cpt.third->second.transp_tex->tex;
+                            unsigned int tcolor = cpt.third->second.transp_tex->opaque_color;
+
+                            // find which side we are on
+                            float ind_x = cpt.first  - cpt.third->first.first;
+                            float ind_y = cpt.second - cpt.third->first.second;
+
+                            float slope = ind_y / ind_x;
+                            int row_index;
+
+                            if(slope > -1.0f && slope < 1.0f) {
+                                // side
+                                row_index = map_float(ind_y, -0.5f, 0.5f, 0, texptr->h);
+                            }
+                            else {
+                                // top/bottom
+                                row_index = map_float(ind_x, -0.5f, 0.5f, 0, texptr->h);
+                            }
+
+                            row_index = clamp_int(row_index, 0, texptr->h-1);
+
+                            unsigned int* row = texptr->row(row_index);
+
+                            for(int j = 0; j < r.h; j++) {
+                                int col_index = map_float(j, 0, r.h, 0, texptr->w);
+                                col_index = clamp_int(col_index, 0, texptr->w - 1);
+
+                                SDL_Rect r1;
+                                r1.w = 1;
+                                r1.h = 1;
+                                r1.x = i;
+                                r1.y = r.y + j;
+
+                                unsigned int color_to_draw = row[col_index];
+                                if(color_to_draw != tcolor)
+                                    SDL_FillRect(surface, &r1, color_to_draw);
+                            }
+                        }
+                        break;
+                }
+
+=======
                 }
 
 
+>>>>>>> master
             #ifdef DEBUG_SHOW_BOUNDS
                 SDL_Rect trim;
                 trim.x = r.x;
@@ -541,7 +699,10 @@ int main(int argc, char* argv[]) {
 
         auto end_timestamp = get_timestamp();
         auto delta_time = end_timestamp - start_timestamp;
+
+        #ifdef DEBUG_PRINT_FRAME_TIME
         cout << "frame time: " << (delta_time/1000L) << " ms\n";
+        #endif
 
         start_loop_time = start_time;
 
