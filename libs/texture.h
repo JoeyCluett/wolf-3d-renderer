@@ -10,7 +10,10 @@
 #include <stdlib.h>
 
 #include <iostream>
+<<<<<<< HEAD
 #include <vector>
+=======
+>>>>>>> master
 #include <fstream>
 #include <string>
 
@@ -18,7 +21,10 @@
 
 struct texture_t {
 
+<<<<<<< HEAD
     // data fields are simple enough
+=======
+>>>>>>> master
     unsigned int* pixel_data;
     int h;
     int w;
@@ -26,6 +32,7 @@ struct texture_t {
     // ctor, no dimensions. that information is in the file
     texture_t(std::string filename, SDL_Surface* surface);
 
+<<<<<<< HEAD
     // ctor for initializing texture with existing data
     // no checks are done to ensure data integrity
     texture_t(std::vector<unsigned int>& data, int h, int w);
@@ -74,6 +81,17 @@ texture_t::texture_t(std::vector<unsigned int>& data, int h, int w) {
     memcpy(this->pixel_data, data.data(), h * w * 4);
 }
 
+=======
+    // open image file associated with this image and load pixel data
+    void init_with_ascii(std::string filename, SDL_Surface* surface);
+    void init_with_binary(std::string filename, SDL_Surface* surface);
+
+    // pixel data is accessed as [y][x]
+    unsigned int* operator[](int idx);
+    unsigned int* row(int idx);
+};
+
+>>>>>>> master
 unsigned int* texture_t::row(int idx) {
     return this->pixel_data + (idx * this->w);
 }
